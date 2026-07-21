@@ -74,12 +74,12 @@ Using Docker avoids installing the ARM toolchain on your host machine and works 
 - Step 4: Compile the firmware
     ```
     docker run --rm -v "$(pwd):/workspace" we2-builder \
-        bash -c "cd /workspace/EPII_CM55M_APP_S && make clean && make -j$(nproc)"
+        bash -c "cd /workspace/EPII_CM55M_APP_S && make clean && make -j\$(nproc)"
     ```
     For an incremental build (skip `make clean`):
     ```
     docker run --rm -v "$(pwd):/workspace" we2-builder \
-        bash -c "cd /workspace/EPII_CM55M_APP_S && make -j$(nproc)"
+        bash -c "cd /workspace/EPII_CM55M_APP_S && make -j\$(nproc)"
     ```
     The output ELF is written back to your local directory via the volume mount:
     `./EPII_CM55M_APP_S/obj_epii_evb_icv30_bdv10/gnu_epii_evb_WLCSP65/EPII_CM55M_gnu_epii_evb_WLCSP65_s.elf`
