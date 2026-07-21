@@ -3,6 +3,7 @@ This is a repository which step by step teaches you how to build your own exampl
 Finally, teach you how to restore to the original factory settings and run [SenseCraft AI](https://wiki.seeedstudio.com/grove_vision_ai_v2_software_support/#-no-code-getting-started-with-sensecraft-ai-) from [Seeed Studio](https://wiki.seeedstudio.com/grove_vision_ai_v2/).
 ## Outline
 - How to build the firmware?
+    - [Build the firmware using Docker (recommended)](https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2?tab=readme-ov-file#build-the-firmware-using-docker-recommended)
     - [Build the firmware at Linux environment](https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2?tab=readme-ov-file#build-the-firmware-at-linux-environment)
     - [Build the firmware at MacOS environment](https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2?tab=readme-ov-file#build-the-firmware-at-macos-environment)
     - [Build the firmware at Windows environment](https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2?tab=readme-ov-file#build-the-firmware-at-windows-environment)
@@ -49,6 +50,59 @@ Finally, teach you how to restore to the original factory settings and run [Sens
 
 ## How to build the firmware?
 This part explains how you can build the firmware for Grove Vision AI Module V2.
+
+### Build the firmware using Docker (recommended)
+Using Docker avoids installing the ARM toolchain on your host machine and works on Linux, macOS (Intel and Apple Silicon), and Windows with Docker Desktop.
+
+- Step 1: Install [Docker](https://docs.docker.com/get-docker/) and make sure the Docker daemon is running.
+
+- Step 2: Clone the repository
+    ```
+    git clone --recursive https://github.com/HimaxWiseEyePlus/Seeed_Grove_Vision_AI_Module_V2.git
+    cd Seeed_Grove_Vision_AI_Module_V2
+    ```
+
+- Step 3: Build the Docker image (one-time setup, takes a few minutes)
+    ```
+    docker build -t we2-builder .
+    ```
+    When the build succeeds you will see the GCC version printed at the end, e.g.:
+    ```
+    arm-none-eabi-gcc (15:10.3-2021.07-4) 10.3.1 20210824 ...
+    ```
+
+- Step 4: Compile the firmware
+    ```
+    docker run --rm -v "$(pwd):/workspace" we2-builder \
+        bash -c "cd /workspace/EPII_CM55M_APP_S && make clean && make -j$(nproc)"
+    ```
+    For an incremental build (skip `make clean`):
+    ```
+    docker run --rm -v "$(pwd):/workspace" we2-builder \
+        bash -c "cd /workspace/EPII_CM55M_APP_S && make -j$(nproc)"
+    ```
+    The output ELF is written back to your local directory via the volume mount:
+    `./EPII_CM55M_APP_S/obj_epii_evb_icv30_bdv10/gnu_epii_evb_WLCSP65/EPII_CM55M_gnu_epii_evb_WLCSP65_s.elf`
+
+- Step 5: Generate the firmware image on your host machine
+    - Linux:
+        ```
+        cd we2_image_gen_local/
+        cp ../EPII_CM55M_APP_S/obj_epii_evb_icv30_bdv10/gnu_epii_evb_WLCSP65/EPII_CM55M_gnu_epii_evb_WLCSP65_s.elf input_case1_secboot/
+        ./we2_local_image_gen project_case1_blp_wlcsp.json
+        ```
+    - macOS:
+        ```
+        cd we2_image_gen_local/
+        cp ../EPII_CM55M_APP_S/obj_epii_evb_icv30_bdv10/gnu_epii_evb_WLCSP65/EPII_CM55M_gnu_epii_evb_WLCSP65_s.elf input_case1_secboot/
+        ./we2_local_image_gen_macOS_arm64 project_case1_blp_wlcsp.json
+        ```
+    Output firmware image: `./output_case1_sec_wlcsp/output.img`
+
+> **Note:** Image generation and flashing always run on the host because they require native OS tools and USB access. Only the compile step runs inside Docker.
+
+[Back to Outline](#outline)
+
 ### Build the firmware at Linux environment
 Note: The following has been tested to work on Ubuntu 20.04 PC
 - Step 1: Install the following prerequisites
