@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
 RUN arm-none-eabi-gcc --version
 
 # Python packages for xmodem flashing
-RUN pip3 install xmodem==0.4.7 pyserial==3.5
+RUN pip3 install --break-system-packages xmodem==0.4.7 pyserial==3.5
 
 WORKDIR /workspace
 
