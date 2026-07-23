@@ -1,10 +1,12 @@
 override SCENARIO_APP_SUPPORT_LIST := $(APP_TYPE)
 
+TARGET ?= GROVE_VISION_AI_V2
+
 APPL_DEFINES += -DSSCMA
 APPL_DEFINES += -DIP_xdma
 
 #APPL_DEFINES += -DEVT_CM55MTIMER -DEVT_CM55MMB
-APPL_DEFINES += -DDBG_MORE -fno-threadsafe-statics -std=c++17 
+APPL_DEFINES += -DDBG_MORE
 
 ##
 # library support feature
