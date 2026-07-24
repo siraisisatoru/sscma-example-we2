@@ -64,7 +64,7 @@ endif
 
 # --------- SSCMA-Micro ---------
 
-ifeq ($(findstring sscma_micro, $(LIB_SEL)), sscma_micro)
+ifneq ($(filter sscma_micro, $(LIB_SEL)),)
 
 # directory declaration
 LIB_SSCMA_MICRO_DIR = $(LIBRARIES_ROOT)/sscma_micro

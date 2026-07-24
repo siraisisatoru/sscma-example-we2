@@ -11,6 +11,10 @@ endif
 
 
 TOOLCHAIN_DEFINES += -D__GNU__ -D__NEWLIB__
+# Ubuntu 24.04 libnewlib-arm-none-eabi uses __INT64_MAX__ guards in stdint.h
+# instead of setting __int64_t_defined, so inttypes.h never defines PRIx64.
+# Force-define the guard to restore expected behaviour.
+TOOLCHAIN_DEFINES += -D__int64_t_defined
 
 SUPPORTED_OLEVELS = O O0 O1 O2 O3 Os Os1 Oz Ofast Og
 ##
