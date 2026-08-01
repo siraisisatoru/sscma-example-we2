@@ -59,6 +59,15 @@ extern "C" {
 #define MA_TFLITE_OP_MAX_POOL_2D           1
 #define MA_TFLITE_OP_MUL                   1
 #define MA_TFLITE_OP_BROADCAST_TO          1
+#define MA_TFLITE_OP_CONV_2D               1
+#define MA_TFLITE_OP_DEPTHWISE_CONV_2D     1
+#define MA_TFLITE_OP_ADD                   1
+#define MA_TFLITE_OP_PAD                   1
+#define MA_TFLITE_OP_CONCATENATION         1
+#define MA_TFLITE_OP_LOGISTIC              1
+#define MA_TFLITE_OP_SPLIT                 1
+#define MA_TFLITE_OP_SLICE                 1
+#define MA_TFLITE_OP_STRIDED_SLICE         1
 
 #define MA_CONFIG_OSAL_FREERTOS_USE_PII    1
 

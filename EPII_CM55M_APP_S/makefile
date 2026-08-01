@@ -8,7 +8,7 @@ EPII_ROOT = .
 APPL ?= EPII_CM55M
 
 # Optimization Level
-OLEVEL ?= O2
+OLEVEL ?= Os
 DEBUG ?= 1
 ##
 # Current Board And Core
@@ -99,7 +99,7 @@ EPII_NSC_SEL = cm55m_nsc_cfg
 LIB_CMSIS_NN_ENALBE = 1
 ## 0 : default version (tflmtag2209_u55tag2205)
 ## 7_0_0 : cmsis_nn_7_0_0 (tflmtag2412_u55tag2411)
-LIB_CMSIS_NN_VERSION = 7_0_0
+LIB_CMSIS_NN_VERSION = ece5a3
 
 # USING Pre-built CV library
 # 1 for enable

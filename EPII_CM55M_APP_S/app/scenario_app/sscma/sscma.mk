@@ -2,13 +2,20 @@ override SCENARIO_APP_SUPPORT_LIST := $(APP_TYPE)
 
 APPL_DEFINES += -DSSCMA -DHIMAX_PLATFORM -DIP_xdma
 APPL_DEFINES += -D_RETARGETABLE_LOCKING
+
+# Suppress compiler warnings for SSCMA library
+# -Wno-strict-aliasing: SSCMA fast math functions use intentional bit manipulation
+# -Wno-unused-variable: Some variables declared for potential future use
+# -Wno-sign-compare: Input size type comparisons
+# APPL_DEFINES += -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare
 APPL_DEFINES += -DDBG_MORE
+
 
 ##
 # library support feature
 # sscma_micro_porting includes sscma_micro core + WE2 porting implementations
 ##
-LIB_SEL = sscma_micro_porting tflmtag2412_u55tag2411 spi_eeprom pwrmgmt sensordp
+LIB_SEL = sscma_micro_porting tflmtag2605_u55tag2605 spi_eeprom pwrmgmt sensordp
 
 ##
 # middleware support feature
