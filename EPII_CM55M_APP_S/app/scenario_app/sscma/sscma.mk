@@ -10,6 +10,12 @@ APPL_DEFINES += -D_RETARGETABLE_LOCKING
 # APPL_DEFINES += -Wno-strict-aliasing -Wno-unused-variable -Wno-sign-compare
 APPL_DEFINES += -DDBG_MORE
 
+# Diagnostics knob: `make TX_TRACE=1` compiles in the console TX counters and
+# the send()/flush() stall dumps used to investigate the streaming hang.
+ifneq ($(TX_TRACE),)
+APPL_DEFINES += -DMA_DEBUG_TX_TRACE
+endif
+
 
 ##
 # library support feature

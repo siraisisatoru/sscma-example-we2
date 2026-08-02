@@ -60,6 +60,16 @@ int board_init() {
 	/*platform driver init*/
 	platform_driver_init();
 #ifdef IP_uart
+	// This is the FIRST uart_open() call on DW_UART_0 (board bring-up,
+	// before app_main()/Console::init() ever run) — console_setup()'s own
+	// console_setup_flag guard makes it idempotent, so THIS call is what
+	// actually sets the baud; Console::init()'s later uart_open() on the
+	// same already-open device is silently ignored by the driver. Tried
+	// dropping this to 460800 while investigating a streaming-freeze bug
+	// (HANDOVER.md section 8: image transport corruption) — that made
+	// corruption measurably WORSE (backlog grows when transmission is
+	// slower than the device's own frame-production rate), so reverted
+	// back to 921600. Don't change this without re-reading section 8 first.
 	console_setup(DW_UART_0_ID, UART_BAUDRATE_921600);
 #endif
 #ifdef LIB_COMMON

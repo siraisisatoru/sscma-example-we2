@@ -1,0 +1,85 @@
+diff --git a/sscma/core/cv/ma_cv.cpp b/sscma/core/cv/ma_cv.cpp
+index c80186c..d313711 100644
+--- a/sscma/core/cv/ma_cv.cpp
++++ b/sscma/core/cv/ma_cv.cpp
+@@ -84,6 +84,14 @@ MA_ATTR_WEAK void yuv422p_to_rgb(const ma_img_t* src, ma_img_t* dst) {
+                 dst->data[index * 3 + 0] = (uint8_t)MA_CLIP(r, 0, 255);
+                 dst->data[index * 3 + 1] = (uint8_t)MA_CLIP(g, 0, 255);
+                 dst->data[index * 3 + 2] = (uint8_t)MA_CLIP(b, 0, 255);
++            } else if (dst->format == MA_PIXEL_FORMAT_RGB888_PLANAR) {
++                // NCHW: three separate R/G/B planes instead of interleaved bytes.
++                // Required for models whose input tensor is (1,3,H,W) — every
++                // litert-torch export is NCHW, so both YOLO11 and YOLO26 need this.
++                uint32_t plane = (uint32_t)dst->width * dst->height;
++                dst->data[index]             = (uint8_t)MA_CLIP(r, 0, 255);
++                dst->data[plane + index]     = (uint8_t)MA_CLIP(g, 0, 255);
++                dst->data[2 * plane + index] = (uint8_t)MA_CLIP(b, 0, 255);
+             }
+         }
+     }
+@@ -1093,7 +1101,7 @@ MA_ATTR_WEAK ma_err_t convert(const ma_img_t* src, ma_img_t* dst) {
+ 
+     if (src->format == MA_PIXEL_FORMAT_YUV422) {
+         if (dst->format == MA_PIXEL_FORMAT_RGB565 || dst->format == MA_PIXEL_FORMAT_RGB888 ||
+-            dst->format == MA_PIXEL_FORMAT_GRAYSCALE) {
++            dst->format == MA_PIXEL_FORMAT_RGB888_PLANAR || dst->format == MA_PIXEL_FORMAT_GRAYSCALE) {
+             yuv422p_to_rgb(src, dst);
+             return MA_OK;
+         }
+diff --git a/sscma/core/utils/ma_nms.h b/sscma/core/utils/ma_nms.h
+index 4af2a95..53c7b4a 100644
+--- a/sscma/core/utils/ma_nms.h
++++ b/sscma/core/utils/ma_nms.h
+@@ -16,10 +16,27 @@ namespace ma::utils {
+ 
+ template <typename T, std::enable_if_t<std::is_base_of<ma_bbox_t, T>::value, bool> = true>
+ inline float compute_iou(const T& box1, const T& box2) {
+-    const float x1    = std::max(box1.x, box2.x);
+-    const float y1    = std::max(box1.y, box2.y);
+-    const float x2    = std::min(box1.x + box1.w, box2.x + box2.w);
+-    const float y2    = std::min(box1.y + box1.h, box2.y + box2.h);
++    // ma_bbox_t::x/y is the box CENTER, not the top-left corner — every producer in
++    // sscma_micro (ma_model_yolov5/yolov8/yolo11/yolo26/fomo/nvidia_det, and both
++    // _hailo variants) writes `x_min + w/2`. The two lines below used to be
++    // `box1.x` / `box1.x + box1.w` directly, i.e. treating the center as a corner
++    // and extending the box a further half-width right / half-height down of where
++    // it actually is. Two overlapping detections of the same object almost never
++    // have identical w/h, so that extra shift doesn't cancel between the two boxes
++    // — it systematically UNDERESTIMATES the true IoU (verified by hand: two boxes
++    // with true IoU ~0.76 computed as ~0.59 under the old math). Below the 0.45
++    // default NMS threshold, that let genuine duplicate detections of one object
++    // survive as separate boxes — most visible on YOLO11's dense one-to-many head,
++    // where several adjacent grid cells/scales confidently detect the same object
++    // and are supposed to collapse into one.
++    const float b1_x1 = box1.x - box1.w * 0.5f, b1_y1 = box1.y - box1.h * 0.5f;
++    const float b1_x2 = box1.x + box1.w * 0.5f, b1_y2 = box1.y + box1.h * 0.5f;
++    const float b2_x1 = box2.x - box2.w * 0.5f, b2_y1 = box2.y - box2.h * 0.5f;
++    const float b2_x2 = box2.x + box2.w * 0.5f, b2_y2 = box2.y + box2.h * 0.5f;
++    const float x1    = std::max(b1_x1, b2_x1);
++    const float y1    = std::max(b1_y1, b2_y1);
++    const float x2    = std::min(b1_x2, b2_x2);
++    const float y2    = std::min(b1_y2, b2_y2);
+     const float w     = std::max(0.0f, x2 - x1);
+     const float h     = std::max(0.0f, y2 - y1);
+     const float inter = w * h;
+diff --git a/sscma/server/at/callback/refactor_required.hpp b/sscma/server/at/callback/refactor_required.hpp
+index 17c857f..8d84d95 100644
+--- a/sscma/server/at/callback/refactor_required.hpp
++++ b/sscma/server/at/callback/refactor_required.hpp
+@@ -54,6 +54,8 @@ ma_err_t setAlgorithmInput(Model* algorithm, ma_img_t& img) {
+         case MA_MODEL_TYPE_FOMO:
+         case MA_MODEL_TYPE_YOLOV5:
+         case MA_MODEL_TYPE_YOLOV8:
++        case MA_MODEL_TYPE_YOLO11:
++        case MA_MODEL_TYPE_YOLO26:
+         case MA_MODEL_TYPE_NVIDIA_DET:
+         case MA_MODEL_TYPE_YOLO_WORLD:
+         case MA_MODEL_TYPE_RTMDET:
+@@ -104,6 +106,7 @@ ma_err_t serializeAlgorithmOutput(Model* algorithm, Encoder* encoder, int width,
+         case MA_MODEL_TYPE_YOLOV5:
+         case MA_MODEL_TYPE_YOLOV8:
+         case MA_MODEL_TYPE_YOLO11:
++        case MA_MODEL_TYPE_YOLO26:
+         case MA_MODEL_TYPE_NVIDIA_DET:
+         case MA_MODEL_TYPE_YOLO_WORLD:
+         case MA_MODEL_TYPE_RTMDET: {

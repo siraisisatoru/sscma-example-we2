@@ -204,7 +204,8 @@ $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/maximum_minimum.cc \
 $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/quantize.cc \
 $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/dequantize.cc \
 $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/pad_common.cc \
-$(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/transpose_common.cc
+$(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/transpose_common.cc \
+$(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/batch_matmul_common.cc
 LIB_INFERENCE_ENGINE_CXXSRCS += \
 $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/cmsis_nn/add.cc \
 $(LIB_INFERENCE_ENGINE_DIR)/tensorflow/lite/micro/kernels/cmsis_nn/batch_matmul.cc \

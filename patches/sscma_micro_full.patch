@@ -1,0 +1,573 @@
+diff --git a/sscma/core/cv/ma_cv.cpp b/sscma/core/cv/ma_cv.cpp
+index c80186c..2059efc 100644
+--- a/sscma/core/cv/ma_cv.cpp
++++ b/sscma/core/cv/ma_cv.cpp
+@@ -84,6 +84,15 @@ MA_ATTR_WEAK void yuv422p_to_rgb(const ma_img_t* src, ma_img_t* dst) {
+                 dst->data[index * 3 + 0] = (uint8_t)MA_CLIP(r, 0, 255);
+                 dst->data[index * 3 + 1] = (uint8_t)MA_CLIP(g, 0, 255);
+                 dst->data[index * 3 + 2] = (uint8_t)MA_CLIP(b, 0, 255);
++            } else if (dst->format == MA_PIXEL_FORMAT_RGB888_PLANAR) {
++                // NCHW: three separate R/G/B planes instead of interleaved bytes.
++                // Needed for models whose input tensor is (1,3,H,W) — e.g. official
++                // ultralytics' litert-torch export, which is always NCHW (unlike the
++                // legacy onnx2tf path, which is NHWC/interleaved).
++                uint32_t plane = (uint32_t)dst->width * dst->height;
++                dst->data[index]             = (uint8_t)MA_CLIP(r, 0, 255);
++                dst->data[plane + index]     = (uint8_t)MA_CLIP(g, 0, 255);
++                dst->data[2 * plane + index] = (uint8_t)MA_CLIP(b, 0, 255);
+             }
+         }
+     }
+@@ -1093,7 +1102,7 @@ MA_ATTR_WEAK ma_err_t convert(const ma_img_t* src, ma_img_t* dst) {
+ 
+     if (src->format == MA_PIXEL_FORMAT_YUV422) {
+         if (dst->format == MA_PIXEL_FORMAT_RGB565 || dst->format == MA_PIXEL_FORMAT_RGB888 ||
+-            dst->format == MA_PIXEL_FORMAT_GRAYSCALE) {
++            dst->format == MA_PIXEL_FORMAT_RGB888_PLANAR || dst->format == MA_PIXEL_FORMAT_GRAYSCALE) {
+             yuv422p_to_rgb(src, dst);
+             return MA_OK;
+         }
+diff --git a/sscma/core/engine/ma_engine_tflite.cpp b/sscma/core/engine/ma_engine_tflite.cpp
+index f2e588b..f5de5cb 100644
+--- a/sscma/core/engine/ma_engine_tflite.cpp
++++ b/sscma/core/engine/ma_engine_tflite.cpp
+@@ -29,6 +29,9 @@ OpsResolver::OpsResolver() {
+ #if MA_TFLITE_OP_ALL || MA_TFLITE_OP_BATCH_TO_SPACE_ND
+     AddBatchToSpaceNd();
+ #endif
++#if MA_TFLITE_OP_ALL || MA_TFLITE_OP_BATCH_MATMUL
++    AddBatchMatMul();
++#endif
+ #if MA_TFLITE_OP_ALL || MA_TFLITE_OP_BROADCAST_ARGS
+     AddBroadcastArgs();
+ #endif
+@@ -347,6 +350,10 @@ ma_err_t EngineTFLite::init() {
+ #ifdef MA_USE_STATIC_TENSOR_ARENA
+ extern "C" {
+ extern uint8_t* _ma_static_tensor_arena;
++void      ma_tensor_arena_arm_canaries(void);
++int       ma_tensor_arena_check_canaries(void);
++uintptr_t ma_tensor_arena_base(void);
++size_t    ma_tensor_arena_size(void);
+ }
+ #endif
+ 
+@@ -384,6 +391,31 @@ ma_err_t EngineTFLite::run() {
+     if (kTfLiteOk != interpreter->Invoke()) {
+         return MA_ELOG;
+     }
++
++#ifdef MA_USE_STATIC_TENSOR_ARENA
++    // The NPU writes into the arena by absolute address from Vela's command
++    // stream; nothing in TFLM or the Ethos-U driver bounds-checks that. The
++    // arena's neighbours are the FreeRTOS heap (below) and the live YUV422
++    // camera framebuffer (12 KB above) — see ma_tensor_arena.cpp. Catch a
++    // stray write here, attributed to the inference that caused it, instead of
++    // as an unexplained hang in the next capture.
++    {
++        const int canary = ma_tensor_arena_check_canaries();
++        if (canary != 0) [[unlikely]] {
++            MA_LOGE(TAG,
++                    "ARENA OVERRUN canary=%d (%s) arena=0x%08X size=%u used=%u",
++                    canary,
++                    canary == 1   ? "low/heap-side"
++                    : canary == 2 ? "high/camera-framebuffer-side"
++                                  : "BOTH",
++                    (unsigned)ma_tensor_arena_base(),
++                    (unsigned)ma_tensor_arena_size(),
++                    (unsigned)interpreter->arena_used_bytes());
++            ma_tensor_arena_arm_canaries();  // re-arm so repeats stay visible
++        }
++    }
++#endif
++
+     return MA_OK;
+ }
+ 
+@@ -408,10 +440,25 @@ ma_err_t EngineTFLite::load(const void* model_data, size_t model_size) {
+         return MA_ENOMEM;
+     }
+     if (kTfLiteOk != interpreter->AllocateTensors()) {
++        MA_LOGE(TAG,
++                "AllocateTensors FAILED: arena=%u bytes is too small for this model",
++                (unsigned)memory_pool.size);
+         delete interpreter;
+         interpreter = nullptr;
+         return MA_ELOG;
+     }
++
++#ifdef MA_USE_STATIC_TENSOR_ARENA
++    // How close this model runs to the arena ceiling. Headroom here is what
++    // stands between a legal inference and a write into the camera framebuffer.
++    ma_tensor_arena_arm_canaries();
++    MA_LOGE(TAG,
++            "arena: used=%u of %u bytes (%u free), base=0x%08X",
++            (unsigned)interpreter->arena_used_bytes(),
++            (unsigned)memory_pool.size,
++            (unsigned)(memory_pool.size - interpreter->arena_used_bytes()),
++            (unsigned)ma_tensor_arena_base());
++#endif
+     return MA_OK;
+ }
+ ma_tensor_t EngineTFLite::getInput(int32_t index) {
+diff --git a/sscma/core/model/ma_model_detector.cpp b/sscma/core/model/ma_model_detector.cpp
+index 90a44bf..06ba233 100644
+--- a/sscma/core/model/ma_model_detector.cpp
++++ b/sscma/core/model/ma_model_detector.cpp
+@@ -1,6 +1,7 @@
+ #include <cstdlib>
+ #include <cstring>
+ 
++#include "../ma_debug.h"
+ #include "ma_model_detector.h"
+ 
+ 
+@@ -28,7 +29,37 @@ Detector::Detector(Engine* p_engine, const char* name, ma_model_type_t type)
+         img_.format = input_.shape.dims[1] == 3 ? MA_PIXEL_FORMAT_RGB888_PLANAR : MA_PIXEL_FORMAT_GRAYSCALE;
+     }
+ 
++    // ma::cv::convert() only ever produces uint8 pixel bytes (RGB888/
++    // RGB888_PLANAR/GRAYSCALE writers all do `(uint8_t)` stores). For a
++    // byte-per-channel tensor (U8/S8) aliasing img_.data directly onto
++    // input_.data.u8 is correct as-is. For any other type (e.g. F32 -- the
++    // common case for an exported model whose input boundary tensor was left
++    // float even though the rest of the graph is int8-quantized), the raw
++    // uint8 bytes convert() writes are NOT the model's expected 4-byte-per-
++    // element data -- preprocess() below expands them into real floats
++    // in place, so img_.data still starts convert()'s writes at the same
++    // byte 0, just like the U8/S8 case; no extra buffer needed.
+     img_.data = input_.data.u8;
++
++    // Input-tensor diagnostics: never logged before. %f/%zu are unusable on
++    // this nano.specs printf -- see ma_model_yolo26.cpp for why -- so scale
++    // is printed as x1000 fixed-point and shape/size fields are cast to
++    // plain int/unsigned.
++    MA_LOGE(TAG,
++            "Detector input: type=%d is_nhwc=%d shape.dims=[%d,%d,%d,%d] "
++            "quant scale_x1000=%d zero_point=%d img_(w=%d h=%d size=%u format=%d)",
++            static_cast<int>(input_.type),
++            static_cast<int>(is_nhwc_),
++            input_.shape.size > 0 ? input_.shape.dims[0] : -1,
++            input_.shape.size > 1 ? input_.shape.dims[1] : -1,
++            input_.shape.size > 2 ? input_.shape.dims[2] : -1,
++            input_.shape.size > 3 ? input_.shape.dims[3] : -1,
++            static_cast<int>(input_.quant_param.scale * 1000.0f),
++            input_.quant_param.zero_point,
++            img_.width,
++            img_.height,
++            static_cast<unsigned>(img_.size),
++            static_cast<int>(img_.format));
+ }
+ 
+ ma_err_t Detector::preprocess() {
+@@ -49,6 +80,26 @@ ma_err_t Detector::preprocess() {
+         for (int i = 0; i < input_.size; i++) {
+             input_.data.u8[i] -= 128;
+         }
++    } else if (input_.type == MA_TENSOR_TYPE_F32) {
++        // ma::cv::convert() just wrote img_.size raw uint8 pixel bytes starting
++        // at byte 0 of this SAME buffer -- the buffer is really a float32
++        // tensor, 4x that many bytes. Expand each 1-byte pixel into its 4-byte
++        // normalized-float slot IN PLACE, walking from the last index to the
++        // first: at iteration i we read source byte i, then write float slot i,
++        // occupying bytes [4i, 4i+4). For that write to clobber some
++        // not-yet-read source byte j, we'd need j < i (unprocessed, since we go
++        // high-to-low) AND j in [4i, 4i+4) -- but j<i<4i for every i>=1, so no
++        // unprocessed source byte ever falls inside a write range. Safe with
++        // zero extra allocation. Standard Ultralytics/YOLO convention: [0,1]
++        // scaling (pixel/255), no per-channel mean/std subtraction.
++        for (int i = img_.size - 1; i >= 0; i--) {
++            const uint8_t raw = input_.data.u8[i];
++            input_.data.f32[i] = static_cast<float>(raw) * (1.0f / 255.0f);
++        }
++    } else if (input_.type != MA_TENSOR_TYPE_U8) {
++        // U8 needs no extra step -- convert()'s raw bytes are already what
++        // the tensor expects. Anything else (S16/U16/etc.) isn't handled.
++        return MA_ENOTSUP;
+     }
+ 
+     return ret;
+diff --git a/sscma/core/model/ma_model_yolo26.cpp b/sscma/core/model/ma_model_yolo26.cpp
+index 7f63d68..ece4f41 100644
+--- a/sscma/core/model/ma_model_yolo26.cpp
++++ b/sscma/core/model/ma_model_yolo26.cpp
+@@ -22,6 +22,32 @@ Yolo26::Yolo26(Engine* p_engine_) : Detector(p_engine_, "Yolo26", MA_MODEL_TYPE_
+     const auto& input_shape = p_engine_->getInputShape(0);
+     const auto outputs_count = p_engine_->getOutputSize();
+ 
++    // NOTE: this build links -specs=nano.specs (newlib-nano); its printf has no
++    // float support and does not handle the 'z' (size_t) length modifier either.
++    // Hitting either one mid-format does NOT consume the matching vararg, which
++    // shifts every argument after it in the SAME call into the wrong conversion
++    // -- silently producing garbage numbers rather than an error. Every log in
++    // this file must therefore use plain %d/%u/%s only, with explicit casts.
++    MA_LOGE(TAG, "outputs_count=%u", static_cast<unsigned>(outputs_count));
++    for (size_t i = 0; i < outputs_count && i < 6; ++i) {
++        auto o = p_engine_->getOutput(i);
++        MA_LOGE(TAG,
++                "  output[%u] type=%d shape.size=%u dims=[%d,%d,%d,%d]",
++                static_cast<unsigned>(i),
++                static_cast<int>(o.type),
++                static_cast<unsigned>(o.shape.size),
++                o.shape.size > 0 ? o.shape.dims[0] : -1,
++                o.shape.size > 1 ? o.shape.dims[1] : -1,
++                o.shape.size > 2 ? o.shape.dims[2] : -1,
++                o.shape.size > 3 ? o.shape.dims[3] : -1);
++        // scale printed as milli-units (x1000) since %f is unusable here
++        MA_LOGE(TAG,
++                "  output[%u] quant scale_x1000=%d zero_point=%d",
++                static_cast<unsigned>(i),
++                static_cast<int>(o.quant_param.scale * 1000.0f),
++                o.quant_param.zero_point);
++    }
++
+     if (outputs_count == 1) {
+         outputs_[0] = p_engine_->getOutput(0);
+         // NMS mode, no further initialization needed here
+@@ -55,6 +81,14 @@ Yolo26::Yolo26(Engine* p_engine_) : Detector(p_engine_, "Yolo26", MA_MODEL_TYPE_
+         cls_idx_[0] = 1; cls_idx_[1] = 3; cls_idx_[2] = 5;
+         num_class_  = outputs_[1].shape.dims[1];
+     }
++
++    MA_LOGE(TAG,
++            "layout=%s num_class_=%d num_record_=%d box_idx_=[%d,%d,%d] cls_idx_=[%d,%d,%d]",
++            outputs_[1].shape.dims[1] == 4 ? "Grouped" : "Interleaved",
++            num_class_,
++            num_record_,
++            box_idx_[0], box_idx_[1], box_idx_[2],
++            cls_idx_[0], cls_idx_[1], cls_idx_[2]);
+ }
+ 
+ 
+@@ -177,6 +211,9 @@ ma_err_t Yolo26::postProcessI8() {
+     const auto score_threshold              = threshold_score_;
+     const float score_threshold_non_sigmoid = ma::math::inverseSigmoid(score_threshold);
+ 
++    float best_score_seen     = -1.0f;  // max sigmoid'd score seen this frame, threshold or not
++    int   candidates_over_thr = 0;      // cells that passed the score gate, pre-NMS
++
+     for (int i = 0; i < 3; i++) {
+         int box_i = box_idx_[i];
+         int cls_i = cls_idx_[i];
+@@ -188,6 +225,31 @@ ma_err_t Yolo26::postProcessI8() {
+         int8_t* output_score = outputs_[cls_i].data.s8;
+         int8_t* output_box   = outputs_[box_i].data.s8;
+ 
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++        // Raw sanity dump at the center cell, once per scale per frame: if these
++        // raw int8 class scores are constant (e.g. always -128 or always the
++        // quantized zero_point) across frames/cells, the tensor itself is dead
++        // (NPU/engine problem), independent of the decode math below.
++        {
++            int center_off = (grid_h / 2) * grid_w + (grid_w / 2);
++            MA_LOGE(TAG,
++                    "[I8] scale=%d grid=%dx%d stride=%d center_cls_raw=[%d,%d,%d,%d,%d] center_box_raw=[%d,%d,%d,%d]",
++                    i,
++                    grid_h,
++                    grid_w,
++                    stride,
++                    num_class_ > 0 ? output_score[center_off + 0 * grid_l] : 0,
++                    num_class_ > 1 ? output_score[center_off + 1 * grid_l] : 0,
++                    num_class_ > 2 ? output_score[center_off + 2 * grid_l] : 0,
++                    num_class_ > 3 ? output_score[center_off + 3 * grid_l] : 0,
++                    num_class_ > 4 ? output_score[center_off + 4 * grid_l] : 0,
++                    output_box[center_off + 0 * grid_l],
++                    output_box[center_off + 1 * grid_l],
++                    output_box[center_off + 2 * grid_l],
++                    output_box[center_off + 3 * grid_l]);
++        }
++#endif
++
+         for (int j = 0; j < grid_h; j++) {
+             for (int k = 0; k < grid_w; k++) {
+                 int offset = j * grid_w + k;
+@@ -208,7 +270,13 @@ ma_err_t Yolo26::postProcessI8() {
+ 
+                 float score = ma::math::dequantizeValue(max, outputs_[cls_i].quant_param.scale, outputs_[cls_i].quant_param.zero_point);
+ 
++                float sigmoid_score = ma::math::sigmoid(score);
++                if (sigmoid_score > best_score_seen) {
++                    best_score_seen = sigmoid_score;
++                }
++
+                 if (score > score_threshold_non_sigmoid) {
++                    ++candidates_over_thr;
+                     float rect[4];
+                     offset = j * grid_w + k;
+                     // Read 4 values directly
+@@ -228,7 +296,7 @@ ma_err_t Yolo26::postProcessI8() {
+                     h  = y2 - y1;
+ 
+                     ma_bbox_t box;
+-                    box.score  = ma::math::sigmoid(score);
++                    box.score  = sigmoid_score;
+                     box.target = target;
+                     box.x      = (x1 + w / 2.0) / img_.width;
+                     box.y      = (y1 + h / 2.0) / img_.height;
+@@ -239,6 +307,16 @@ ma_err_t Yolo26::postProcessI8() {
+             }
+         }
+     }
++
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++    // score values printed as x1000 fixed-point ints -- %f is unusable, see note in constructor
++    MA_LOGE(TAG,
++            "[I8] threshold_x1000=%d best_score_seen_x1000=%d candidates_over_thr=%d",
++            static_cast<int>(score_threshold * 1000.0f),
++            static_cast<int>(best_score_seen * 1000.0f),
++            candidates_over_thr);
++#endif
++
+     return MA_OK;
+ }
+ 
+@@ -247,6 +325,10 @@ ma_err_t Yolo26::postProcessF32() {
+     const auto score_threshold              = threshold_score_;
+     const float score_threshold_non_sigmoid = ma::math::inverseSigmoid(score_threshold);
+ 
++    float best_raw_score      = -1e30f;  // max raw class logit seen this frame, regardless of threshold
++    int   candidates_over_thr = 0;
++    int   nan_score_count     = 0;  // how often the isnan() guard below actually fires, this frame
++
+     for (int i = 0; i < 3; i++) {
+         int box_i = box_idx_[i];
+         int cls_i = cls_idx_[i];
+@@ -258,6 +340,29 @@ ma_err_t Yolo26::postProcessF32() {
+         float* output_score = outputs_[cls_i].data.f32;
+         float* output_box   = outputs_[box_i].data.f32;
+ 
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++        // Raw sanity dump at the center cell, once per scale per frame (x1000
++        // fixed-point -- %f is unusable here, see note in constructor).
++        {
++            int center_off = (grid_h / 2) * grid_w + (grid_w / 2);
++            MA_LOGE(TAG,
++                    "[F32] scale=%d grid=%dx%d stride=%d center_cls_raw_x1000=[%d,%d,%d,%d,%d] center_box_raw_x1000=[%d,%d,%d,%d]",
++                    i,
++                    grid_h,
++                    grid_w,
++                    stride,
++                    num_class_ > 0 ? static_cast<int>(output_score[center_off + 0 * grid_l] * 1000.0f) : 0,
++                    num_class_ > 1 ? static_cast<int>(output_score[center_off + 1 * grid_l] * 1000.0f) : 0,
++                    num_class_ > 2 ? static_cast<int>(output_score[center_off + 2 * grid_l] * 1000.0f) : 0,
++                    num_class_ > 3 ? static_cast<int>(output_score[center_off + 3 * grid_l] * 1000.0f) : 0,
++                    num_class_ > 4 ? static_cast<int>(output_score[center_off + 4 * grid_l] * 1000.0f) : 0,
++                    static_cast<int>(output_box[center_off + 0 * grid_l] * 1000.0f),
++                    static_cast<int>(output_box[center_off + 1 * grid_l] * 1000.0f),
++                    static_cast<int>(output_box[center_off + 2 * grid_l] * 1000.0f),
++                    static_cast<int>(output_box[center_off + 3 * grid_l] * 1000.0f));
++        }
++#endif
++
+         for (int j = 0; j < grid_h; j++) {
+             for (int k = 0; k < grid_w; k++) {
+                 int offset = j * grid_w + k;
+@@ -266,6 +371,21 @@ ma_err_t Yolo26::postProcessF32() {
+                 for (int c = 0; c < num_class_; c++) {
+                     float score = output_score[offset];
+                     offset += grid_l;
++                    // A NaN tensor value must never win the max-score search: both
++                    // `score < max` and `score >= max` are false for NaN under
++                    // IEEE-754, so the old code's `if (score < max) continue;`
++                    // fell through and incorrectly accepted NaN as a new max,
++                    // setting target >= 0 for a cell with no real detection. That
++                    // inflated candidates_over_thr while the box never actually
++                    // got pushed (max > threshold is also false for NaN), producing
++                    // a pre_nms/candidates_over_thr mismatch with no real cause.
++                    if (isnan(score)) {
++                        ++nan_score_count;
++                        continue;
++                    }
++                    if (score > best_raw_score) {
++                        best_raw_score = score;
++                    }
+                     if (score < max) [[likely]] {
+                         continue;
+                     }
+@@ -276,6 +396,8 @@ ma_err_t Yolo26::postProcessF32() {
+                 if (target < 0)
+                     continue;
+ 
++                ++candidates_over_thr;
++
+                 if (max > score_threshold_non_sigmoid) {
+                     float rect[4];
+                     offset = j * grid_w + k;
+@@ -306,6 +428,14 @@ ma_err_t Yolo26::postProcessF32() {
+         }
+     }
+ 
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++    MA_LOGE(TAG,
++            "[F32] threshold_x1000=%d best_score_seen_x1000=%d candidates_over_thr=%d nan_score_count=%d",
++            static_cast<int>(score_threshold * 1000.0f),
++            static_cast<int>(ma::math::sigmoid(best_raw_score) * 1000.0f),
++            candidates_over_thr,
++            nan_score_count);
++#endif
+ 
+     return MA_OK;
+ }
+@@ -462,13 +592,25 @@ ma_err_t Yolo26::postprocess() {
+     } else if (outputs_[0].type == MA_TENSOR_TYPE_S8) {
+         err = postProcessI8();
+     } else {
++        MA_LOGE(TAG, "postprocess: unsupported outputs_[0].type=%d, no decode path taken", static_cast<int>(outputs_[0].type));
+         return MA_ENOTSUP;
+     }
+ 
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++    int pre_nms_count = 0;
++    for (auto it = results_.begin(); it != results_.end(); ++it) ++pre_nms_count;
++#endif
++
+     ma::utils::nms(results_, threshold_nms_, threshold_score_, false, false);
+ 
+     results_.sort([](const ma_bbox_t& a, const ma_bbox_t& b) { return a.x < b.x; });
+ 
++#ifdef MA_DEBUG_YOLO26_VERBOSE
++    int post_nms_count = 0;
++    for (auto it = results_.begin(); it != results_.end(); ++it) ++post_nms_count;
++    MA_LOGE(TAG, "postprocess: pre_nms=%d post_nms=%d", pre_nms_count, post_nms_count);
++#endif
++
+     return err;
+ }
+ }  // namespace ma::model
+diff --git a/sscma/server/at/callback/invoke.hpp b/sscma/server/at/callback/invoke.hpp
+index 42b151e..335da39 100644
+--- a/sscma/server/at/callback/invoke.hpp
++++ b/sscma/server/at/callback/invoke.hpp
+@@ -184,6 +184,22 @@ Err:
+             _event_hook(*_encoder);
+         _encoder->end();
+         _transport->send(reinterpret_cast<const char*>(_encoder->data()), _encoder->size());
++        // Drain this frame before the loop captures + infers the next one.
++        //
++        // send() only queues into the 48 KB TX ring; the DMA drains it
++        // asynchronously. A detailed frame (~20 KB) takes longer to clock out at
++        // 921600 baud than the device takes to produce the next one, so without
++        // this the ring fills and send() falls into its ring-full path — which
++        // still stalls the transport permanently (reproduced on hardware: the
++        // stream dies after ~10 large frames even with ample heap free). Pacing
++        // to the link's real throughput keeps the ring from ever filling, so
++        // that path is never entered.
++        //
++        // NOTE: a guard, not a root-cause fix. The ring-full / DMA-restart path
++        // in Console::send()/_uart_dma_send() has a latent bug worth finding
++        // separately; blank-scene streaming (~3 KB frames) never reaches it,
++        // which is why it only ever surfaced on detailed scenes.
++        _transport->flush();
+     }
+ 
+     void eventLoopCamera() {
+diff --git a/sscma/server/at/callback/refactor_required.hpp b/sscma/server/at/callback/refactor_required.hpp
+index 17c857f..8d84d95 100644
+--- a/sscma/server/at/callback/refactor_required.hpp
++++ b/sscma/server/at/callback/refactor_required.hpp
+@@ -54,6 +54,8 @@ ma_err_t setAlgorithmInput(Model* algorithm, ma_img_t& img) {
+         case MA_MODEL_TYPE_FOMO:
+         case MA_MODEL_TYPE_YOLOV5:
+         case MA_MODEL_TYPE_YOLOV8:
++        case MA_MODEL_TYPE_YOLO11:
++        case MA_MODEL_TYPE_YOLO26:
+         case MA_MODEL_TYPE_NVIDIA_DET:
+         case MA_MODEL_TYPE_YOLO_WORLD:
+         case MA_MODEL_TYPE_RTMDET:
+@@ -104,6 +106,7 @@ ma_err_t serializeAlgorithmOutput(Model* algorithm, Encoder* encoder, int width,
+         case MA_MODEL_TYPE_YOLOV5:
+         case MA_MODEL_TYPE_YOLOV8:
+         case MA_MODEL_TYPE_YOLO11:
++        case MA_MODEL_TYPE_YOLO26:
+         case MA_MODEL_TYPE_NVIDIA_DET:
+         case MA_MODEL_TYPE_YOLO_WORLD:
+         case MA_MODEL_TYPE_RTMDET: {
+diff --git a/sscma/server/at/codec/ma_codec_json.cpp b/sscma/server/at/codec/ma_codec_json.cpp
+index 783febe..d80a7e8 100644
+--- a/sscma/server/at/codec/ma_codec_json.cpp
++++ b/sscma/server/at/codec/ma_codec_json.cpp
+@@ -2,10 +2,22 @@
+ 
+ #include <cJSON.h>
+ 
++#include <cstring>
++
+ namespace ma {
+ 
+ static const char* TAG = "ma::codec::JSON";
+ 
++// Declared locally rather than pulling FreeRTOS.h into this otherwise
++// platform-agnostic file. Used only for the OOM diagnostic in end().
++extern "C" size_t xPortGetFreeHeapSize(void);
++
++// Adaptive prebuffer size for cJSON_PrintBuffered() in end() — see there.
++// Single Executor task owns all EncoderJSON use, so a plain static is fine.
++static constexpr size_t kPrintHintMin = 2 * 1024;
++static constexpr size_t kPrintHintMax = 32 * 1024;
++static size_t           s_print_hint  = kPrintHintMin;
++
+ EncoderJSON::EncoderJSON() : m_mutex(false) {
+ 
+     m_root = nullptr;
+@@ -123,16 +135,46 @@ ma_err_t EncoderJSON::end() {
+         ret = MA_EPERM;
+         goto exit;
+     }
+-    str = cJSON_PrintUnformatted(m_root);
++    // NOT cJSON_PrintUnformatted(): that starts at a 256 B buffer and doubles,
++    // and every doubling holds the old and new buffer alive simultaneously.
++    // Peak cost is therefore ~3x the payload (tree copy + old buffer + new
++    // buffer). The FreeRTOS heap only has ~58 KB free at steady state on this
++    // board (measured), so a ~20 KB payload — an ordinary detailed 240x240
++    // frame — would blow it.
++    //
++    // cJSON_PrintBuffered() allocates the prebuffer once and only grows if the
++    // guess was too small, so a well-sized guess makes the peak ~2x payload.
++    // Frame sizes are highly stable frame-to-frame, so seed the guess from the
++    // previous frame; s_hint converges after one frame and never doubles again.
++    str = cJSON_PrintBuffered(m_root, static_cast<int>(s_print_hint), false);
++    if (str) [[likely]] {
++        const size_t len = strlen(str);
++        // +25% headroom so ordinary frame-to-frame jitter doesn't trigger a grow.
++        size_t hint = len + (len >> 2) + 512;
++        if (hint < kPrintHintMin) hint = kPrintHintMin;
++        if (hint > kPrintHintMax) hint = kPrintHintMax;
++        s_print_hint = hint;
++    }
+     if (!str) [[unlikely]] {
++        // Recoverable: cJSON returns NULL rather than faulting, and end()'s
++        // caller just re-sends the previous m_string. Log it so heap-pressure
++        // regressions are visible instead of silently duplicating frames.
++        MA_LOGE(TAG, "cJSON print OOM, free heap=%u", static_cast<unsigned>(xPortGetFreeHeapSize()));
+         ret = MA_ENOMEM;
+         goto exit;
+     }
+     m_string.clear();
+     m_string.shrink_to_fit();
++    // reserve() the exact final size before appending. Without it the three
++    // appends below each reallocate-and-copy, and a realloc holds the old and
++    // new buffer alive at once — on a heap this tight that transient is the
++    // difference between encoding a frame and faulting on a null allocation.
++    m_string.reserve(strlen(str) + 2);
+     m_string += "\r";  // prefix
+     m_string += str;
+     m_string += "\n";  // suffix
++    // str came from cJSON_PrintUnformatted(), which allocates through g_hooks
++    // — free it with the matching hook allocator.
+     ma_free(str);
+ 
+ exit:
+@@ -159,6 +201,13 @@ ma_err_t EncoderJSON::reset() {
+         cJSON_Delete(m_root);
+         m_root = nullptr;
+     }
++    // m_data always aliases m_root itself or a child object owned by it, so
++    // it's equally invalid the moment m_root is deleted — but every begin()
++    // overload leaves it stale on its failure path (only m_root gets nulled
++    // above), and no downstream write() checks begin()'s return value. Null
++    // it here so every begin() overload starts from a consistently invalid
++    // (nullptr root, nullptr data) state instead of a dangling one.
++    m_data = nullptr;
+     return MA_OK;
+ }
+ 

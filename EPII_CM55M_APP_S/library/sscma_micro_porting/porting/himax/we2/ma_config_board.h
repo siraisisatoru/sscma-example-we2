@@ -46,6 +46,9 @@ extern "C" {
 #define MA_USE_ENGINE_TFLITE               1
 #define MA_ENGINE_TFLITE_TENSOE_ARENA_SIZE (1100 * 1024)
 #define MA_USE_ENGINE_TENSOR_INDEX         1
+// Arena is placed in CM55M_S_EL_ALLOC via a dedicated linker section
+// (ma_tensor_arena.cpp) instead of pvPortMalloc — see that file for why.
+#define MA_USE_STATIC_TENSOR_ARENA         1
 
 #define MA_TFLITE_OP_SOFTMAX               1
 #define MA_TFLITE_OP_PADV2                 1
@@ -68,6 +71,9 @@ extern "C" {
 #define MA_TFLITE_OP_SPLIT                 1
 #define MA_TFLITE_OP_SLICE                 1
 #define MA_TFLITE_OP_STRIDED_SLICE         1
+// YOLO26n's C2PSA backbone attention blocks lower to BATCH_MATMUL (unrelated
+// to the detection head / DFL); needed for any YOLO26 model.
+#define MA_TFLITE_OP_BATCH_MATMUL          1
 
 #define MA_CONFIG_OSAL_FREERTOS_USE_PII    1
 
@@ -76,6 +82,7 @@ extern "C" {
 #define MA_SENSOR_ENCODE_USE_STATIC_BUFFER 1
 #define MA_SENSOR_ENCODE_STATIC_BUFFER_ADDR (0x36000000 + (200 * 1024))
 #define MA_SENSOR_ENCODE_STATIC_BUFFER_SIZE (0x36060000 - MA_SENSOR_ENCODE_STATIC_BUFFER_ADDR)
+
 
 #define MA_FILESYSTEM_LITTLEFS             1
 #define MA_STORAGE_LFS_USE_FLASHBD         1

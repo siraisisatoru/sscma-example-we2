@@ -241,8 +241,14 @@ ma_err_t StorageLfs::getImpl(std::string key, std::string& buffer) {
     lfs_file_t file;
     int        ret = lfs_file_open(&m_lfs, &file, path.c_str(), LFS_O_RDONLY);
     if (ret != LFS_ERR_OK) [[unlikely]] {
-        MA_LOGE(TAG, "Failed to open file %s, code %d", path.c_str(), ret);
-        return MA_EIO;
+        // LFS_ERR_NOENT just means this config key has never been written
+        // (expected on every boot until something writes it — every caller
+        // falls back to a compiled-in default via MA_STORAGE_GET_POD/GET_STR,
+        // see ma_storage.h) — not a real error, so don't log it as one.
+        if (ret != LFS_ERR_NOENT) {
+            MA_LOGE(TAG, "Failed to open file %s, code %d", path.c_str(), ret);
+        }
+        return MA_ENOENT;
     }
 
     lfs_info info;

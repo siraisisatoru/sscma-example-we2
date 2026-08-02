@@ -94,15 +94,23 @@ extern uint32_t SystemCoreClock;
 #define configUSE_CO_ROUTINES                 0
 
 /* Constants provided for debugging and optimisation assistance. */
-#define configCHECK_FOR_STACK_OVERFLOW        0
+#define configCHECK_FOR_STACK_OVERFLOW        2
 #define configQUEUE_REGISTRY_SIZE             0
-#define configASSERT( x )                     if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ); }
+/* Was: if( (x)==0 ) { taskDISABLE_INTERRUPTS(); for(;;); } — a SILENT hang with
+ * interrupts off. A tripped assert was indistinguishable from a lockup: no
+ * output, no response, nothing on the wire. Route it through a reporting hook
+ * instead. Deliberately passes the caller's return address and __LINE__ rather
+ * than __FILE__: no string literals, so it costs no ROM (this image is already
+ * at ~87% of CM55M_S_APP_ROM). Resolve the address with
+ * arm-none-eabi-addr2line -e EPII_CM55M_gnu_epii_evb_WLCSP65_s.elf <addr>. */
+extern void vAssertCalled( unsigned long ulPC, unsigned long ulLine );
+#define configASSERT( x )                     if( ( x ) == 0 ) { vAssertCalled( ( unsigned long ) __builtin_return_address( 0 ), __LINE__ ); }
 
 /* Constants that define which hook (callback) functions should be used. */
 #define configUSE_IDLE_HOOK                   0
 #define configUSE_TICK_HOOK                   0
 #define configUSE_DAEMON_TASK_STARTUP_HOOK    0
-#define configUSE_MALLOC_FAILED_HOOK          0
+#define configUSE_MALLOC_FAILED_HOOK          1
 
 /* Port specific configuration. */
 //#define configENABLE_MPU                      0
