@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # WE2-required patch applied. Idempotent: skips if already applied.
 # See patches/README.md for what this patch does and why.
 SSCMA_MICRO_DIR="$ROOT/EPII_CM55M_APP_S/library/sscma_micro"
-PATCH="$ROOT/patches/sscma_micro_minimal.patch"
+PATCH="$ROOT/patches/sscma_micro_full.patch"
 if ! git -C "$SSCMA_MICRO_DIR" apply --check "$PATCH" 2>/dev/null; then
   if git -C "$SSCMA_MICRO_DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
     echo "sscma_micro: patch already applied, skipping"
