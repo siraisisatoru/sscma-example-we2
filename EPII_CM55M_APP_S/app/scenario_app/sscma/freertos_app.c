@@ -63,12 +63,50 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
 /*-----------------------------------------------------------*/
 
 
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-	/* Silence warning about unused parameters. */
-	(void) xTask;
+/* ---------------------------------------------------------------------------
+ * Failure reporting.
+ *
+ * Every one of these paths used to fail SILENTLY: configASSERT() spun forever
+ * with interrupts disabled, and the stack-overflow / malloc-failed hooks were
+ * compiled out entirely (configCHECK_FOR_STACK_OVERFLOW and
+ * configUSE_MALLOC_FAILED_HOOK were both 0). A tripped assert, a blown task
+ * stack and a genuine lockup all looked identical from the host: the device
+ * simply stopped talking. These hooks make each one say which it was.
+ *
+ * They print with xprintf/printf, which retargets to console_putchar() — a
+ * polled, byte-at-a-time write to UART0. That matters here: it still works with
+ * interrupts masked and with the TX DMA dead, which is exactly the state these
+ * hooks run in.
+ * ------------------------------------------------------------------------- */
 
-	/* Force an assert. */
-	configASSERT(pcTaskName == 0);
+void vAssertCalled(unsigned long ulPC, unsigned long ulLine) {
+	taskDISABLE_INTERRUPTS();
+	/* ulPC is the return address of the function containing the failed
+	 * configASSERT(). Resolve it with:
+	 *   arm-none-eabi-addr2line -f -e <...>_s.elf <ulPC> */
+	printf("\r\n!! FreeRTOS configASSERT FAILED  pc=0x%08lX line=%lu\r\n", ulPC, ulLine);
+	for (;;) {
+	}
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
+	(void) xTask;
+	taskDISABLE_INTERRUPTS();
+	printf("\r\n!! STACK OVERFLOW in task '%s'\r\n", pcTaskName ? pcTaskName : "?");
+	for (;;) {
+	}
+}
+
+void vApplicationMallocFailedHook(void) {
+	/* pvPortMalloc() returned NULL. Callers here mostly do not check, so this
+	 * would otherwise surface later as a null-pointer HardFault far from the
+	 * real cause — or as silent corruption. */
+	taskDISABLE_INTERRUPTS();
+	printf("\r\n!! pvPortMalloc FAILED  free=%u min_ever=%u\r\n",
+			(unsigned) xPortGetFreeHeapSize(),
+			(unsigned) xPortGetMinimumEverFreeHeapSize());
+	for (;;) {
+	}
 }
 
 /*-----------------------------------------------------------*/

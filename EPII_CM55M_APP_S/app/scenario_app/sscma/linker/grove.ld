@@ -72,7 +72,7 @@ SECTIONS
         //*libcmsis_drivers.*:*(.text* .rodata*)
 
         . = ALIGN(8);
-        *lib_cmsis_nn_7_0_0.*:*(.text* .rodata*)
+        *lib_cmsis_nn_ece5a3.*:*(.text* .rodata*)
 
         //. = ALIGN(8);
         //*libsensordp.*:*(.text* .rodata*)

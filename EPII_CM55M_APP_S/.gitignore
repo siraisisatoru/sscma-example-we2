@@ -21,4 +21,6 @@ prebuilt_libs/gnu/**
 !prebuilt_libs/gnu/libextdevice.a
 !prebuilt_libs/gnu/libcustomer.a
 !prebuilt_libs/gnu/libdriver.a
+!prebuilt_libs/gnu/lib_cmsis_nn_ece5a3.a
+!prebuilt_libs/gnu/libtflmtag2605_u55tag2605_cmsisnn_gnu.a
 

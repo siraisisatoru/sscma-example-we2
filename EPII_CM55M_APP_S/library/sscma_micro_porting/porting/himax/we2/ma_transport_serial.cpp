@@ -14,6 +14,7 @@ extern "C" {
 #include <hx_drv_uart.h>
 }
 
+#include <porting/ma_misc.h>
 #include <porting/ma_osal.h>
 
 #include <core/utils/ma_ringbuffer.hpp>
@@ -75,6 +76,11 @@ ma_err_t Serial::init(const void* config) {
         return MA_EIO;
     }
 
+    // This is UART_1 (separate physical peripheral from Console's UART_0,
+    // different pins — PB6/PB7). Turned out NOT to be the transport wired
+    // to the CH343 USB-serial bridge we actually use (that's UART_0, see
+    // board.c's console_setup() and HANDOVER.md section 8) — changing this
+    // had no observable effect during that investigation. Left at 921600.
     int ret = _uart->uart_open(UART_BAUDRATE_921600);
     if (ret != 0) {
         return MA_EIO;
@@ -93,7 +99,14 @@ ma_err_t Serial::init(const void* config) {
     }
 
     if (_rb_tx == nullptr) {
-        _rb_tx = new SPSCRingBuffer<char>(48 * 1024);
+        // 4 KB, not the 48 KB the Console uses. This is UART_1 (PB6/PB7), which
+        // is NOT the port the CH343 USB bridge exposes — nothing streams image
+        // payloads over it, so it has no need for a frame-sized ring. The 48 KB
+        // it used to reserve came straight out of the 336 KB FreeRTOS heap that
+        // the AT/JSON event path has to share, leaving only ~60 KB free at
+        // steady state; encoding one detailed frame needs several simultaneous
+        // copies of the payload and was overrunning that.
+        _rb_tx = new SPSCRingBuffer<char>(4 * 1024);
     }
 
     if (!_rx_buf || !_tx_buf || !_rb_rx || !_rb_tx) {
