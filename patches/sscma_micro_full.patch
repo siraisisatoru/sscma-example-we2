@@ -187,6 +187,35 @@ index 90a44bf..06ba233 100644
      }
  
      return ret;
+diff --git a/sscma/core/model/ma_model_yolo11.cpp b/sscma/core/model/ma_model_yolo11.cpp
+index cadfe2b..ed6e80f 100644
+--- a/sscma/core/model/ma_model_yolo11.cpp
++++ b/sscma/core/model/ma_model_yolo11.cpp
+@@ -126,14 +126,22 @@ ma_err_t Yolo11::postProcessI8() {
+                 if (target < 0)
+                     continue;
+ 
+-                float score = ma::math::dequantizeValue(max, outputs_[i * 2].quant_param.scale, outputs_[i * 2].quant_param.zero_point);
++                // Quant params must come from the tensor the value was read from:
++                // the class logit lives in outputs_[i*2+1], the box in outputs_[i*2].
++                // Upstream had these two swapped, which only shows up once YOLO11 is
++                // exported with a genuine int8 boundary (6 raw heads). Symptom: the
++                // cls zero_point error inflates every logit by ~+10, so background
++                // cells clear the gate at sigmoid~1.0, while the box scale error
++                // flattens the DFL softmax so duplicates fall under the NMS IoU
++                // threshold -- stacks of ~100%-confidence overlapping boxes.
++                float score = ma::math::dequantizeValue(max, outputs_[i * 2 + 1].quant_param.scale, outputs_[i * 2 + 1].quant_param.zero_point);
+ 
+                 if (score > score_threshold_non_sigmoid) {
+                     float rect[4];
+                     float before_dfl[dfl_len * 4];
+                     offset = j * grid_w + k;
+                     for (int b = 0; b < dfl_len * 4; b++) {
+-                        before_dfl[b] = ma::math::dequantizeValue(output_box[offset], outputs_[i * 2 + 1].quant_param.scale, outputs_[i * 2 + 1].quant_param.zero_point);
++                        before_dfl[b] = ma::math::dequantizeValue(output_box[offset], outputs_[i * 2].quant_param.scale, outputs_[i * 2].quant_param.zero_point);
+                         offset += grid_l;
+                     }
+                     compute_dfl(before_dfl, dfl_len, rect);
 diff --git a/sscma/core/model/ma_model_yolo26.cpp b/sscma/core/model/ma_model_yolo26.cpp
 index 7f63d68..ece4f41 100644
 --- a/sscma/core/model/ma_model_yolo26.cpp
