@@ -5,21 +5,23 @@
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Ensure the sscma_micro submodule (pristine upstream, no fork) has the
-# WE2-required patch applied. Idempotent: skips if already applied.
-# See patches/README.md for what this patch does and why.
-SSCMA_MICRO_DIR="$ROOT/EPII_CM55M_APP_S/library/sscma_micro"
+# Ensure patches/sscma_micro_full.patch is applied. It covers both the
+# sscma_micro submodule (pristine upstream, no fork -- WE2-required fixes)
+# and the in-tree UART1/ESP32 companion-link fix in sscma_micro_porting (see
+# esp_node/README.md). Because it spans both, it's a plain git-diff-style
+# patch applied from the REPO ROOT, not from inside the submodule.
+# Idempotent: skips if already applied. See patches/README.md.
 PATCH="$ROOT/patches/sscma_micro_full.patch"
-if ! git -C "$SSCMA_MICRO_DIR" apply --check "$PATCH" 2>/dev/null; then
-  if git -C "$SSCMA_MICRO_DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
-    echo "sscma_micro: patch already applied, skipping"
+if ! git -C "$ROOT" apply --check "$PATCH" 2>/dev/null; then
+  if git -C "$ROOT" apply --reverse --check "$PATCH" 2>/dev/null; then
+    echo "sscma_micro_full.patch: already applied, skipping"
   else
-    echo "ERROR: $PATCH does not apply cleanly to sscma_micro (dirty submodule or upstream drift?)"
+    echo "ERROR: $PATCH does not apply cleanly (dirty tree or upstream drift?)"
     exit 1
   fi
 else
-  echo "sscma_micro: applying $PATCH"
-  git -C "$SSCMA_MICRO_DIR" apply "$PATCH"
+  echo "sscma_micro_full.patch: applying"
+  git -C "$ROOT" apply "$PATCH"
 fi
 
 docker run --rm -v "$ROOT:/workspace" sscma-yolo26-build:26.05 bash -c "

@@ -67,3 +67,5 @@ model_zoo/tflm_face_recognition/calibration_data/
 .venv/
 debug_output/
 *.jpg
+
+__pycache__

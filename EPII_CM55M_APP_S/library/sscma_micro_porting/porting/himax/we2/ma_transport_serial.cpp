@@ -21,6 +21,17 @@ extern "C" {
 
 #include "ma_config_board.h"
 
+// TX ring for UART_1 (PB6/PB7 — the XIAO/ESP32 header, see esp_node/README.md).
+//
+// 4 KB is enough for AT responses and results-only INVOKE events. Streaming
+// base64 JPEG frames to a companion MCU needs a frame-sized ring or send()
+// spends every frame in the ring-full path. Raise it from the board config
+// only when the ESP32 link actually carries images — it comes straight out of
+// the 336 KB FreeRTOS heap the AT/JSON event path already competes for.
+#ifndef MA_TRANSPORT_SERIAL_TX_RING_SIZE
+#define MA_TRANSPORT_SERIAL_TX_RING_SIZE (4 * 1024)
+#endif
+
 namespace ma {
 
 static SPSCRingBuffer<char>* _rb_rx   = nullptr;
@@ -39,6 +50,39 @@ static void _uart_dma_recv(void*) {
     SCB_CleanDCache_by_Addr(_rx_buf, 1);
     _rb_rx->push(_rx_buf, 1);
     _uart->uart_read_udma(_rx_buf, 1, reinterpret_cast<void*>(_uart_dma_recv));
+}
+
+static void _uart_dma_send(void*);
+
+// Claim the TX DMA and start it if it is idle and there is queued data.
+//
+// Mirrors Console's _tx_kick(). The check-and-claim MUST be atomic against
+// _uart_dma_send() below, which runs in ISR context and clears _tx_busy
+// whenever it finds the ring empty. The old code did a bare
+// `if (!_tx_busy) { _tx_busy = true; ... }` from task context: if the ISR
+// sampled an empty ring just before send() pushed new bytes, send() would then
+// observe _tx_busy still set, yield, and return — leaving data in the ring with
+// no DMA in flight and nothing left to re-arm it. The stream stops dead. Only
+// reachable with payloads larger than the ring, which is exactly what streaming
+// base64 JPEG frames to the ESP32 over this UART does.
+static void _tx_kick() {
+    if (!_is_opened || !_rb_tx || !_tx_buf || !_uart) {
+        return;
+    }
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    const bool claimed = !_tx_busy && !_rb_tx->empty();
+    if (claimed) {
+        _tx_busy = true;
+    }
+    __set_PRIMASK(primask);
+    if (!claimed) {
+        return;
+    }
+    size_t n = std::min(_rb_tx->size(), static_cast<size_t>(4095));
+    n        = _rb_tx->pop(_tx_buf, n);
+    SCB_CleanDCache_by_Addr(_tx_buf, n);
+    _uart->uart_write_udma(_tx_buf, n, reinterpret_cast<void*>(_uart_dma_send));
 }
 
 static void _uart_dma_send(void*) {
@@ -99,14 +143,16 @@ ma_err_t Serial::init(const void* config) {
     }
 
     if (_rb_tx == nullptr) {
-        // 4 KB, not the 48 KB the Console uses. This is UART_1 (PB6/PB7), which
-        // is NOT the port the CH343 USB bridge exposes — nothing streams image
-        // payloads over it, so it has no need for a frame-sized ring. The 48 KB
-        // it used to reserve came straight out of the 336 KB FreeRTOS heap that
-        // the AT/JSON event path has to share, leaving only ~60 KB free at
-        // steady state; encoding one detailed frame needs several simultaneous
-        // copies of the payload and was overrunning that.
-        _rb_tx = new SPSCRingBuffer<char>(4 * 1024);
+        // Default 4 KB, not the 48 KB the Console uses. This is UART_1
+        // (PB6/PB7), which is NOT the port the CH343 USB bridge exposes. The
+        // 48 KB it used to reserve came straight out of the 336 KB FreeRTOS
+        // heap that the AT/JSON event path has to share, leaving only ~60 KB
+        // free at steady state; encoding one detailed frame needs several
+        // simultaneous copies of the payload and was overrunning that.
+        //
+        // Raise MA_TRANSPORT_SERIAL_TX_RING_SIZE when a companion MCU on the
+        // XIAO header streams image payloads over this UART.
+        _rb_tx = new SPSCRingBuffer<char>(MA_TRANSPORT_SERIAL_TX_RING_SIZE);
     }
 
     if (!_rx_buf || !_tx_buf || !_rb_rx || !_rb_tx) {
@@ -170,22 +216,28 @@ size_t Serial::send(const char* data, size_t length) {
 
     Guard guard(_tx_mutex);
 
-    size_t bytes_to_send = 0;
-    size_t sent          = 0;
+    size_t sent = 0;
+
+    // Bound the ring-full wait. Unbounded, a TX DMA that stops draining wedges
+    // the Executor task here forever with no output at all. Give up and drop
+    // the frame instead of hanging the device. Same reasoning as Console::send.
+    unsigned           stall_spins    = 0;
+    constexpr unsigned kMaxStallSpins = 200000;
 
     while (length) {
-        bytes_to_send = _rb_tx->push(data + sent, length);
-        length -= bytes_to_send;
-        sent += bytes_to_send;
+        const size_t pushed = _rb_tx->push(data + sent, length);
+        length -= pushed;
+        sent += pushed;
 
-        if (!_tx_busy) {
-            _tx_busy      = true;
-            bytes_to_send = std::min(_rb_tx->size(), static_cast<size_t>(4095));
-            _rb_tx->pop(_tx_buf, bytes_to_send);
-            SCB_CleanDCache_by_Addr(_tx_buf, bytes_to_send);
-            _uart->uart_write_udma(_tx_buf, bytes_to_send, reinterpret_cast<void*>(_uart_dma_send));
-        } else {
+        _tx_kick();
+
+        if (pushed == 0) {
+            if (++stall_spins >= kMaxStallSpins) {
+                break;
+            }
             ma::Thread::yield();
+        } else {
+            stall_spins = 0;
         }
     }
 
@@ -195,6 +247,17 @@ size_t Serial::send(const char* data, size_t length) {
 size_t Serial::flush() {
     if (!m_initialized) {
         return -1;
+    }
+
+    // send() only guarantees the data is copied into _rb_tx; the DMA drains it
+    // asynchronously. The invoke loop calls flush() after every frame to pace
+    // itself to the link so the ring never fills — that only works if flush()
+    // actually waits. Bounded so a stuck _tx_busy degrades into a dropped frame
+    // instead of wedging the Executor task.
+    constexpr int kMaxYields = 200000;
+    int           spins      = 0;
+    while ((_tx_busy || !_rb_tx->empty()) && spins++ < kMaxYields) {
+        ma::Thread::yield();
     }
 
     return 0;

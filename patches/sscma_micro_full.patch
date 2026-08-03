@@ -1,7 +1,7 @@
-diff --git a/sscma/core/cv/ma_cv.cpp b/sscma/core/cv/ma_cv.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/cv/ma_cv.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/cv/ma_cv.cpp
 index c80186c..2059efc 100644
---- a/sscma/core/cv/ma_cv.cpp
-+++ b/sscma/core/cv/ma_cv.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/cv/ma_cv.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/cv/ma_cv.cpp
 @@ -84,6 +84,15 @@ MA_ATTR_WEAK void yuv422p_to_rgb(const ma_img_t* src, ma_img_t* dst) {
                  dst->data[index * 3 + 0] = (uint8_t)MA_CLIP(r, 0, 255);
                  dst->data[index * 3 + 1] = (uint8_t)MA_CLIP(g, 0, 255);
@@ -27,10 +27,10 @@ index c80186c..2059efc 100644
              yuv422p_to_rgb(src, dst);
              return MA_OK;
          }
-diff --git a/sscma/core/engine/ma_engine_tflite.cpp b/sscma/core/engine/ma_engine_tflite.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/engine/ma_engine_tflite.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/engine/ma_engine_tflite.cpp
 index f2e588b..f5de5cb 100644
---- a/sscma/core/engine/ma_engine_tflite.cpp
-+++ b/sscma/core/engine/ma_engine_tflite.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/engine/ma_engine_tflite.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/engine/ma_engine_tflite.cpp
 @@ -29,6 +29,9 @@ OpsResolver::OpsResolver() {
  #if MA_TFLITE_OP_ALL || MA_TFLITE_OP_BATCH_TO_SPACE_ND
      AddBatchToSpaceNd();
@@ -110,10 +110,10 @@ index f2e588b..f5de5cb 100644
      return MA_OK;
  }
  ma_tensor_t EngineTFLite::getInput(int32_t index) {
-diff --git a/sscma/core/model/ma_model_detector.cpp b/sscma/core/model/ma_model_detector.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_detector.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_detector.cpp
 index 90a44bf..06ba233 100644
---- a/sscma/core/model/ma_model_detector.cpp
-+++ b/sscma/core/model/ma_model_detector.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_detector.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_detector.cpp
 @@ -1,6 +1,7 @@
  #include <cstdlib>
  #include <cstring>
@@ -187,10 +187,10 @@ index 90a44bf..06ba233 100644
      }
  
      return ret;
-diff --git a/sscma/core/model/ma_model_yolo11.cpp b/sscma/core/model/ma_model_yolo11.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo11.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo11.cpp
 index cadfe2b..ed6e80f 100644
---- a/sscma/core/model/ma_model_yolo11.cpp
-+++ b/sscma/core/model/ma_model_yolo11.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo11.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo11.cpp
 @@ -126,14 +126,22 @@ ma_err_t Yolo11::postProcessI8() {
                  if (target < 0)
                      continue;
@@ -216,10 +216,10 @@ index cadfe2b..ed6e80f 100644
                          offset += grid_l;
                      }
                      compute_dfl(before_dfl, dfl_len, rect);
-diff --git a/sscma/core/model/ma_model_yolo26.cpp b/sscma/core/model/ma_model_yolo26.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo26.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo26.cpp
 index 7f63d68..ece4f41 100644
---- a/sscma/core/model/ma_model_yolo26.cpp
-+++ b/sscma/core/model/ma_model_yolo26.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo26.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/core/model/ma_model_yolo26.cpp
 @@ -22,6 +22,32 @@ Yolo26::Yolo26(Engine* p_engine_) : Detector(p_engine_, "Yolo26", MA_MODEL_TYPE_
      const auto& input_shape = p_engine_->getInputShape(0);
      const auto outputs_count = p_engine_->getOutputSize();
@@ -463,10 +463,10 @@ index 7f63d68..ece4f41 100644
      return err;
  }
  }  // namespace ma::model
-diff --git a/sscma/server/at/callback/invoke.hpp b/sscma/server/at/callback/invoke.hpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/invoke.hpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/invoke.hpp
 index 42b151e..335da39 100644
---- a/sscma/server/at/callback/invoke.hpp
-+++ b/sscma/server/at/callback/invoke.hpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/invoke.hpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/invoke.hpp
 @@ -184,6 +184,22 @@ Err:
              _event_hook(*_encoder);
          _encoder->end();
@@ -490,10 +490,10 @@ index 42b151e..335da39 100644
      }
  
      void eventLoopCamera() {
-diff --git a/sscma/server/at/callback/refactor_required.hpp b/sscma/server/at/callback/refactor_required.hpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/refactor_required.hpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/refactor_required.hpp
 index 17c857f..8d84d95 100644
---- a/sscma/server/at/callback/refactor_required.hpp
-+++ b/sscma/server/at/callback/refactor_required.hpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/refactor_required.hpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/callback/refactor_required.hpp
 @@ -54,6 +54,8 @@ ma_err_t setAlgorithmInput(Model* algorithm, ma_img_t& img) {
          case MA_MODEL_TYPE_FOMO:
          case MA_MODEL_TYPE_YOLOV5:
@@ -511,10 +511,10 @@ index 17c857f..8d84d95 100644
          case MA_MODEL_TYPE_NVIDIA_DET:
          case MA_MODEL_TYPE_YOLO_WORLD:
          case MA_MODEL_TYPE_RTMDET: {
-diff --git a/sscma/server/at/codec/ma_codec_json.cpp b/sscma/server/at/codec/ma_codec_json.cpp
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/codec/ma_codec_json.cpp b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/codec/ma_codec_json.cpp
 index 783febe..d80a7e8 100644
---- a/sscma/server/at/codec/ma_codec_json.cpp
-+++ b/sscma/server/at/codec/ma_codec_json.cpp
+--- a/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/codec/ma_codec_json.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro/sscma/server/at/codec/ma_codec_json.cpp
 @@ -2,10 +2,22 @@
  
  #include <cJSON.h>
@@ -598,5 +598,152 @@ index 783febe..d80a7e8 100644
 +    // (nullptr root, nullptr data) state instead of a dangling one.
 +    m_data = nullptr;
      return MA_OK;
+ }
+ 
+diff --git a/EPII_CM55M_APP_S/library/sscma_micro_porting/porting/himax/we2/ma_transport_serial.cpp b/EPII_CM55M_APP_S/library/sscma_micro_porting/porting/himax/we2/ma_transport_serial.cpp
+index c676899..0d1f642 100644
+--- a/EPII_CM55M_APP_S/library/sscma_micro_porting/porting/himax/we2/ma_transport_serial.cpp
++++ b/EPII_CM55M_APP_S/library/sscma_micro_porting/porting/himax/we2/ma_transport_serial.cpp
+@@ -21,6 +21,17 @@ extern "C" {
+ 
+ #include "ma_config_board.h"
+ 
++// TX ring for UART_1 (PB6/PB7 — the XIAO/ESP32 header, see esp_node/README.md).
++//
++// 4 KB is enough for AT responses and results-only INVOKE events. Streaming
++// base64 JPEG frames to a companion MCU needs a frame-sized ring or send()
++// spends every frame in the ring-full path. Raise it from the board config
++// only when the ESP32 link actually carries images — it comes straight out of
++// the 336 KB FreeRTOS heap the AT/JSON event path already competes for.
++#ifndef MA_TRANSPORT_SERIAL_TX_RING_SIZE
++#define MA_TRANSPORT_SERIAL_TX_RING_SIZE (4 * 1024)
++#endif
++
+ namespace ma {
+ 
+ static SPSCRingBuffer<char>* _rb_rx   = nullptr;
+@@ -41,6 +52,39 @@ static void _uart_dma_recv(void*) {
+     _uart->uart_read_udma(_rx_buf, 1, reinterpret_cast<void*>(_uart_dma_recv));
+ }
+ 
++static void _uart_dma_send(void*);
++
++// Claim the TX DMA and start it if it is idle and there is queued data.
++//
++// Mirrors Console's _tx_kick(). The check-and-claim MUST be atomic against
++// _uart_dma_send() below, which runs in ISR context and clears _tx_busy
++// whenever it finds the ring empty. The old code did a bare
++// `if (!_tx_busy) { _tx_busy = true; ... }` from task context: if the ISR
++// sampled an empty ring just before send() pushed new bytes, send() would then
++// observe _tx_busy still set, yield, and return — leaving data in the ring with
++// no DMA in flight and nothing left to re-arm it. The stream stops dead. Only
++// reachable with payloads larger than the ring, which is exactly what streaming
++// base64 JPEG frames to the ESP32 over this UART does.
++static void _tx_kick() {
++    if (!_is_opened || !_rb_tx || !_tx_buf || !_uart) {
++        return;
++    }
++    const uint32_t primask = __get_PRIMASK();
++    __disable_irq();
++    const bool claimed = !_tx_busy && !_rb_tx->empty();
++    if (claimed) {
++        _tx_busy = true;
++    }
++    __set_PRIMASK(primask);
++    if (!claimed) {
++        return;
++    }
++    size_t n = std::min(_rb_tx->size(), static_cast<size_t>(4095));
++    n        = _rb_tx->pop(_tx_buf, n);
++    SCB_CleanDCache_by_Addr(_tx_buf, n);
++    _uart->uart_write_udma(_tx_buf, n, reinterpret_cast<void*>(_uart_dma_send));
++}
++
+ static void _uart_dma_send(void*) {
+     if (!_is_opened || !_rb_tx || !_tx_buf || !_uart) {
+         _tx_busy = false;
+@@ -99,14 +143,16 @@ ma_err_t Serial::init(const void* config) {
+     }
+ 
+     if (_rb_tx == nullptr) {
+-        // 4 KB, not the 48 KB the Console uses. This is UART_1 (PB6/PB7), which
+-        // is NOT the port the CH343 USB bridge exposes — nothing streams image
+-        // payloads over it, so it has no need for a frame-sized ring. The 48 KB
+-        // it used to reserve came straight out of the 336 KB FreeRTOS heap that
+-        // the AT/JSON event path has to share, leaving only ~60 KB free at
+-        // steady state; encoding one detailed frame needs several simultaneous
+-        // copies of the payload and was overrunning that.
+-        _rb_tx = new SPSCRingBuffer<char>(4 * 1024);
++        // Default 4 KB, not the 48 KB the Console uses. This is UART_1
++        // (PB6/PB7), which is NOT the port the CH343 USB bridge exposes. The
++        // 48 KB it used to reserve came straight out of the 336 KB FreeRTOS
++        // heap that the AT/JSON event path has to share, leaving only ~60 KB
++        // free at steady state; encoding one detailed frame needs several
++        // simultaneous copies of the payload and was overrunning that.
++        //
++        // Raise MA_TRANSPORT_SERIAL_TX_RING_SIZE when a companion MCU on the
++        // XIAO header streams image payloads over this UART.
++        _rb_tx = new SPSCRingBuffer<char>(MA_TRANSPORT_SERIAL_TX_RING_SIZE);
+     }
+ 
+     if (!_rx_buf || !_tx_buf || !_rb_rx || !_rb_tx) {
+@@ -170,22 +216,28 @@ size_t Serial::send(const char* data, size_t length) {
+ 
+     Guard guard(_tx_mutex);
+ 
+-    size_t bytes_to_send = 0;
+-    size_t sent          = 0;
++    size_t sent = 0;
++
++    // Bound the ring-full wait. Unbounded, a TX DMA that stops draining wedges
++    // the Executor task here forever with no output at all. Give up and drop
++    // the frame instead of hanging the device. Same reasoning as Console::send.
++    unsigned           stall_spins    = 0;
++    constexpr unsigned kMaxStallSpins = 200000;
+ 
+     while (length) {
+-        bytes_to_send = _rb_tx->push(data + sent, length);
+-        length -= bytes_to_send;
+-        sent += bytes_to_send;
+-
+-        if (!_tx_busy) {
+-            _tx_busy      = true;
+-            bytes_to_send = std::min(_rb_tx->size(), static_cast<size_t>(4095));
+-            _rb_tx->pop(_tx_buf, bytes_to_send);
+-            SCB_CleanDCache_by_Addr(_tx_buf, bytes_to_send);
+-            _uart->uart_write_udma(_tx_buf, bytes_to_send, reinterpret_cast<void*>(_uart_dma_send));
+-        } else {
++        const size_t pushed = _rb_tx->push(data + sent, length);
++        length -= pushed;
++        sent += pushed;
++
++        _tx_kick();
++
++        if (pushed == 0) {
++            if (++stall_spins >= kMaxStallSpins) {
++                break;
++            }
+             ma::Thread::yield();
++        } else {
++            stall_spins = 0;
+         }
+     }
+ 
+@@ -197,6 +249,17 @@ size_t Serial::flush() {
+         return -1;
+     }
+ 
++    // send() only guarantees the data is copied into _rb_tx; the DMA drains it
++    // asynchronously. The invoke loop calls flush() after every frame to pace
++    // itself to the link so the ring never fills — that only works if flush()
++    // actually waits. Bounded so a stuck _tx_busy degrades into a dropped frame
++    // instead of wedging the Executor task.
++    constexpr int kMaxYields = 200000;
++    int           spins      = 0;
++    while ((_tx_busy || !_rb_tx->empty()) && spins++ < kMaxYields) {
++        ma::Thread::yield();
++    }
++
+     return 0;
  }
  
