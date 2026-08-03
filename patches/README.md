@@ -3,15 +3,47 @@
 `EPII_CM55M_APP_S/library/sscma_micro` is a submodule pinned at `e830d54`. There is no fork of it,
 so the WE2-specific changes live here as patches applied on top of pristine upstream.
 
-Apply with:
+`quick_rebuild.sh` applies `sscma_micro_full.patch` automatically (idempotent), so normally you do
+not apply anything by hand. To do it manually:
 
     cd EPII_CM55M_APP_S/library/sscma_micro
-    git apply ../../../patches/sscma_micro_minimal.patch
+    git apply ../../../patches/sscma_micro_full.patch
 
-## sscma_micro_minimal.patch — 3 files. THIS IS THE ONE YOU NEED.
+## sscma_micro_yolo11_quant_swap — the YOLO11 duplicate-box fix (in the full patch)
+
+Found 2026-08-03. `Yolo11::postProcessI8()` dequantized the class logit with the BOX tensor's
+scale/zero-point and the box with the CLS tensor's — the two `outputs_[i*2]` / `outputs_[i*2+1]`
+indices were swapped. `Yolo26::postProcessI8()` is correct upstream (it uses named `box_idx_` /
+`cls_idx_`), so this is YOLO11-only.
+
+It stayed latent because YOLO11 used to be exported by the kris-himax fork with `no_post=False`,
+which baked the DFL decode into the model and emitted ONE decoded-box tensor — so this function
+never ran. Unifying YOLO11 onto the YOLO26 export path (6 raw heads + forced int8 boundary) binds
+the `Yolo11` decoder and runs `postProcessI8()` for the first time.
+
+Measured on the real deer export (`yolo11_int8.tflite`, nc=1, 192px), decoding identical int8
+tensors both ways:
+
+    image               swapped: raw ->nms  maxconf  medW      fixed: raw ->nms  maxconf  medW
+    -110_jpg.rf.63c16a       39     8   0.9999   59.7                8     1   0.7609  128.0
+    -286_jpg.rf.b4fe319     101    22   1.0000   38.6                3     1   0.6903   35.4
+    -416_jpg.rf.2ad4dbd     160    35   1.0000   38.5               12     2   0.7443   52.7
+
+Two independent effects, both from the same swap: the cls zero-point (127 vs 32) inflates every
+logit by ~+10 so background cells clear the gate at sigmoid~1.0, and the box scale (0.056 vs 0.109,
+0.51x) flattens the DFL softmax so duplicates come out wrong-sized and fall under the NMS IoU
+threshold. Hence stacks of ~100%-confident overlapping boxes.
+
+Note the fixed peak confidence is ~0.76, not ~0.99, and marginal frames can drop to zero
+detections at a 0.5 threshold. That is the honest accuracy of this int8 export (cls scale 0.056 =
+coarse logit granularity), not a residual bug. Tune with `AT+TSCORE=` or more `--cal-images`.
+
+## sscma_micro_minimal.patch — 3 files. SUPERSEDED, do not use.
 
 Verified on hardware 2026-08-02: both YOLO11 and YOLO26 stream and decode at ~10 fps with only
-this applied (3x25 s clean runs each, device responsive after).
+this applied (3x25 s clean runs each, device responsive after). That result did NOT hold on retest,
+and `quick_rebuild.sh` was moved to the full patch in a381ab5. Kept for reference; the three fixes
+below are all also present in the full patch.
 
 **`sscma/core/utils/ma_nms.h`** — `compute_iou()` treated `ma_bbox_t.x`/`.y` as the box's TOP-LEFT
 corner. Every single producer in this codebase (yolov5/yolov8/yolo11/yolo26/fomo/nvidia_det, both
@@ -53,10 +85,16 @@ strong override compiled into `sscma_micro_porting/` with no submodule edit at a
 both objects land in the same `libsscma_micro_porting.a` and weak-vs-strong resolution inside one
 archive is member-order dependent, so verify with `nm`/the map file before relying on it.
 
-## sscma_micro_full.patch — the full development set, for reference only
+## sscma_micro_full.patch — THIS IS THE ONE THAT GETS APPLIED
 
-Everything that was tried while chasing the YOLO26 freeze. Do NOT apply this; most of it is
-obsolete now that the models are int8/100%-NPU, and one hunk is actively wrong:
+`quick_rebuild.sh` applies it. It is the full development set from chasing the YOLO26 freeze, plus
+the YOLO11 quant-swap fix above. Several hunks are obsolete or questionable rather than needed —
+annotated below so the next person knows which is which. Regenerate it after editing the submodule:
+
+    cd EPII_CM55M_APP_S/library/sscma_micro && git diff > ../../../patches/sscma_micro_full.patch
+
+(the file is exactly `git diff` of the submodule, and `quick_rebuild.sh` reverse-checks it to decide
+whether it is already applied — so it must stay that way.)
 
 - `ma_model_detector.cpp` — in-place F32 expansion. Dead: input is now `type=2` (S8) and upstream's
   existing `input_.data.u8[i] -= 128` path handles it.
