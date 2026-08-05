@@ -112,10 +112,21 @@ payloads during the YOLO26 freeze investigation; `Serial` was deliberately left 
    drain (bounded at 200k yields, as `Console` does).
 3. **4 KB TX ring**, smaller than a single image frame, so every frame went through the
    ring-full path — exactly the path defect 1 lived in. The ring size becomes
-   `MA_TRANSPORT_SERIAL_TX_RING_SIZE` (still defaulting to 4 KB — raise it only when the ESP32
-   link carries JPEG payloads, e.g. `APPL_DEFINES+=-DMA_TRANSPORT_SERIAL_TX_RING_SIZE=24576`; 24 KB
-   is a reasonable start for 320×240, budgeted against the same FreeRTOS heap the AT/JSON event
-   path shares).
+   `MA_TRANSPORT_SERIAL_TX_RING_SIZE`, defaulting to 4 KB in `ma_transport_serial.cpp` and
+   overridden to 24 KB in `ma_config_board.h` (24 KB is a reasonable start for 320×240, budgeted
+   against the same FreeRTOS heap the AT/JSON event path shares).
+
+   **Do not try to set this from the make command line.** An earlier revision of this file
+   suggested `APPL_DEFINES+=-DMA_TRANSPORT_SERIAL_TX_RING_SIZE=24576`; that recipe is actively
+   harmful. A command-line assignment to `APPL_DEFINES` overrides the variable outright, and GNU
+   Make then *ignores every `APPL_DEFINES +=` in the makefiles* — including `+=` on the command
+   line itself, which appends only to the command-line value. Verified on the build container's
+   GNU Make 4.3: a makefile with `A += -DFOO` / `A += -DBAR` yields `A=[-DFOO -DBAR]` normally but
+   `A=[-DBAZ]` under `make 'A+=-DBAZ'`. Passing it would have silently dropped `-DSSCMA`,
+   `-DHIMAX_PLATFORM`, `-DIP_xdma`, `-D_RETARGETABLE_LOCKING`, `-DDBG_MORE` and
+   `-DIC_PACKAGE_WLCSP65`. Board-level knobs belong in `ma_config_board.h`, which
+   `ma_transport_serial.cpp` includes immediately before its `#ifndef` guard for exactly this
+   purpose.
 
 Together, defects 1–3 mean boxes-only streaming (`AT+INVOKE=-1,1`) worked fine even before this
 fix; image streaming (`AT+INVOKE=-1,0`) would wedge after a handful of frames without it.

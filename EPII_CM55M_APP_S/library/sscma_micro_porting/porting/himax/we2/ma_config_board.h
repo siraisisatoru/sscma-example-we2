@@ -94,6 +94,16 @@ extern "C" {
 #define MA_SEVER_AT_EXECUTOR_STACK_SIZE    (20 * 1024)
 #define MA_SEVER_AT_EXECUTOR_TASK_PRIO     2
 
+// UART_1 (PB6/PB7) TX ring — the XIAO/ESP32 companion header. The 4 KB default
+// in ma_transport_serial.cpp only covers AT responses and results-only INVOKE
+// events; an ESP32 node running AT+INVOKE=-1,0 pushes a base64 JPEG per frame,
+// which is larger than that ring, so every frame would take send()'s ring-full
+// path. Set here rather than passed as APPL_DEFINES on the make command line:
+// a command-line APPL_DEFINES assignment discards every `APPL_DEFINES +=` in
+// the makefiles (verified on the build container's GNU Make 4.3), silently
+// dropping -DSSCMA, -DIC_PACKAGE_WLCSP65 and the rest.
+#define MA_TRANSPORT_SERIAL_TX_RING_SIZE   (24 * 1024)
+
 #define MA_DEBUG_LEVEL                     1
 
 // #define MA_CONFIG_BOARD_I2C_SLAVE          1
