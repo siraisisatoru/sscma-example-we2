@@ -69,3 +69,4 @@ debug_output/
 *.jpg
 
 __pycache__
+EPII_CM55M_APP_S/.built_app
