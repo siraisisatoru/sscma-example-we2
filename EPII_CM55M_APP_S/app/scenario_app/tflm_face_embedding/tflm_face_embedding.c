@@ -91,6 +91,11 @@
     #define dbg_app_log(fmt, ...)
 #endif
 
+/* Legacy binary embedding protocol (0xAA header + raw floats) on the console
+ * UART. Off by default: the JSON FACE_RESULT stream (send_result.cpp) carries
+ * the same data, and the binary blob corrupts the host viewer's line parser. */
+#define UART_SEND_BINARY_EMBEDDING  (0)
+
 static uint8_t 	g_xdma_abnormal, g_md_detect, g_cdm_fifoerror, g_wdt1_timeout, g_wdt2_timeout,g_wdt3_timeout;
 static uint8_t 	g_hxautoi2c_error, g_inp1bitparer_abnormal;
 static uint32_t g_dp_event;
@@ -370,7 +375,7 @@ static void dp_app_cv_fd_fm_eventhdl_cb(EVT_INDEX_E event)
 	case EVT_INDEX_XDMA_FRAME_READY:
 		g_cur_jpegenc_frame++;
     	g_frame_ready = 1;
-		dbg_printf(DBG_LESS_INFO, "SENSORDPLIB_STATUS_XDMA_FRAME_READY %d \n", g_cur_jpegenc_frame);
+		dbg_app_log("SENSORDPLIB_STATUS_XDMA_FRAME_READY %d \n", g_cur_jpegenc_frame);
 		break;
 
 	case EVT_INDEX_SENSOR_RTC_FIRE:
@@ -440,7 +445,7 @@ static void dp_app_cv_fd_fm_eventhdl_cb(EVT_INDEX_E event)
 	if( g_trans_type == 0 )// transfer type is (UART)
 	{
 		int ret = cv_face_embedding_run(&algoresult, &embedding_result);
-		if (ret == 0 && algoresult.num_tracked_human_targets > 0) {
+		if (UART_SEND_BINARY_EMBEDDING && ret == 0 && algoresult.num_tracked_human_targets > 0) {
 			send_face_embedding_uart(&embedding_result);
 		}
 #ifdef CIS_IMX
@@ -460,7 +465,7 @@ static void dp_app_cv_fd_fm_eventhdl_cb(EVT_INDEX_E event)
 			SystemGetTick(&systick_1, &loop_cnt_1);
 		#endif
 				int ret = cv_face_embedding_run(&algoresult, &embedding_result);
-				if (ret == 0 && algoresult.num_tracked_human_targets > 0) {
+				if (UART_SEND_BINARY_EMBEDDING && ret == 0 && algoresult.num_tracked_human_targets > 0) {
 					send_face_embedding_uart(&embedding_result);
 				}
 #ifdef CIS_IMX
@@ -494,7 +499,7 @@ static void dp_app_cv_fd_fm_eventhdl_cb(EVT_INDEX_E event)
 			SystemGetTick(&systick_1, &loop_cnt_1);
 	#endif
 			int ret = cv_face_embedding_run(&algoresult, &embedding_result);
-			if (ret == 0 && algoresult.num_tracked_human_targets > 0) {
+			if (UART_SEND_BINARY_EMBEDDING && ret == 0 && algoresult.num_tracked_human_targets > 0) {
 				send_face_embedding_uart(&embedding_result);
 			}
 #ifdef CIS_IMX

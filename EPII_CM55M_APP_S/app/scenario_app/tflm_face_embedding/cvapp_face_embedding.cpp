@@ -59,7 +59,9 @@
 #endif
 #endif
 
-#define TOTAL_STEP_TICK 1
+/* Per-frame "[Perf] SCRFD=..ms MFN=..ms" print. Off by default: it pollutes
+ * the console UART the host viewer parses (and xprintf renders %f as ".1f"). */
+#define TOTAL_STEP_TICK 0
 #define CPU_CLK (0xffffff + 1)
 
 /* DEBUG: Output all detected faces without running embedding

@@ -22,6 +22,15 @@ extern "C" {
 #include "xprintf.h"
 }
 
+/* Per-frame detector diagnostics (mapping info, max_score, NMS counts). Off by
+ * default so the UART carries only the result protocol; set to 1 to debug. */
+#define SCRFD_DEBUG_LOG 0
+#if SCRFD_DEBUG_LOG
+#define scrfd_dbg(...) xprintf(__VA_ARGS__)
+#else
+#define scrfd_dbg(...)
+#endif
+
 /* Detection stride values for SCRFD_500M */
 static const int STRIDES[SCRFD_NUM_STRIDES] = {8, 16, 32};
 
@@ -221,19 +230,21 @@ std::forward_list<scrfd_face> scrfd_detect(
     int p_y = net->pad_y;
 
     /* Debug: print mapping info once */
+#if SCRFD_DEBUG_LOG
     static int printed_cnt = 0;
     if (printed_cnt < 3) {
-        xprintf("[SCRFD] img=%dx%d input=%dx%d scale=(%d,%d)/1000 pad=(%d,%d)\n",
+        scrfd_dbg("[SCRFD] img=%dx%d input=%dx%d scale=(%d,%d)/1000 pad=(%d,%d)\n",
                 image_w, image_h, net->input_w, net->input_h,
                 (int)(sc_x * 1000), (int)(sc_y * 1000), p_x, p_y);
-        xprintf("[SCRFD] branches=%d: ", net->num_branches);
+        scrfd_dbg("[SCRFD] branches=%d: ", net->num_branches);
         for (int i = 0; i < net->num_branches; i++) {
-            xprintf("s%d(%dx%d) ", net->branches[i].stride,
+            scrfd_dbg("s%d(%dx%d) ", net->branches[i].stride,
                     net->branches[i].grid_w, net->branches[i].grid_h);
         }
-        xprintf("\n");
+        scrfd_dbg("\n");
         printed_cnt++;
     }
+#endif
 
     /* Track max score for debugging */
     float max_score = 0.0f;
@@ -385,7 +396,7 @@ std::forward_list<scrfd_face> scrfd_detect(
     }
 
     /* Debug: print max score per stride to diagnose detection issues */
-    xprintf("max_score: s8=%d s16=%d s32=%d /1000, best=%d(b%d), thresh=%d\n",
+    scrfd_dbg("max_score: s8=%d s16=%d s32=%d /1000, best=%d(b%d), thresh=%d\n",
             (int)(max_score_per_stride[0] * 1000),
             (int)(max_score_per_stride[1] * 1000),
             (int)(max_score_per_stride[2] * 1000),
@@ -410,7 +421,7 @@ std::forward_list<scrfd_face> scrfd_detect(
         }
     }
 
-    xprintf("[NMS] After intra-stride: s8=%d s16=%d s32=%d\n",
+    scrfd_dbg("[NMS] After intra-stride: s8=%d s16=%d s32=%d\n",
             stride_counts[0], stride_counts[1], stride_counts[2]);
 
     /* Step 2: Merge all stride detections */
@@ -437,7 +448,7 @@ std::forward_list<scrfd_face> scrfd_detect(
         }
     }
 
-    xprintf("[NMS] After cross-stride: %d faces\n", *num_faces);
+    scrfd_dbg("[NMS] After cross-stride: %d faces\n", *num_faces);
 
     /* Step 4: Filter out oversized detections
      * Faces larger than MAX_FACE_RATIO of image dimension are likely false positives */
@@ -447,7 +458,7 @@ std::forward_list<scrfd_face> scrfd_detect(
 
     for (auto& face : dets) {
         if (face.score > 0 && (face.bbox.w > max_face_w || face.bbox.h > max_face_h)) {
-            xprintf("[SCRFD] Suppressed oversized: %.0fx%.0f (max=%.0fx%.0f)\n",
+            scrfd_dbg("[SCRFD] Suppressed oversized: %.0fx%.0f (max=%.0fx%.0f)\n",
                     face.bbox.w, face.bbox.h, max_face_w, max_face_h);
             face.score = 0;
             oversized_count++;
@@ -456,7 +467,7 @@ std::forward_list<scrfd_face> scrfd_detect(
 
     if (oversized_count > 0) {
         *num_faces -= oversized_count;
-        xprintf("[NMS] After size filter: %d faces\n", *num_faces);
+        scrfd_dbg("[NMS] After size filter: %d faces\n", *num_faces);
     }
 
     return dets;
